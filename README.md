@@ -1,4 +1,5 @@
 H-1B Approval Analysis by Political Affiliation
+
 This R script analyzes the relationship between US Presidential election results and H-1B visa approval numbers across different states. It compares approval counts during specific fiscal terms (Biden and Trump) to determine if there is a statistically significant difference in approvals between "Red" and "Blue" states.
 
 ## Features
