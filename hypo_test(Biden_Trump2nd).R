@@ -1,70 +1,48 @@
-# Load necessary libraries
+# 1. Import necessary Libraries
 library(dplyr)
 library(tidyr)
-library(ggplot2)
 
-# 1. Load the datasets
-h1b_data <- read.csv("h1b_clean_utf8.csv")
-election_data <- read.csv("combined_presidential_results.csv")
+# 2. Add State Population Data
+# Using built-in R state data for quick normalization
+pop_data <- data.frame(
+  state_name = state.name,
+  population = state.x77[, "Population"] * 1000 # state.x77 stores in 1000s
+) %>%
+  # Add DC manually since it's not in the state.name dataset
+  add_row(state_name = "District of Columbia", population = 671803)
 
-# 2. Define state mapping (Abbreviation to Full Name)
-state_map <- data.frame(
-  state_name = c(
-    "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", 
-    "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", 
-    "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", 
-    "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", 
-    "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", 
-    "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", 
-    "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", 
-    "Wisconsin", "Wyoming", "District of Columbia"
-  ),
-  Petitioner.State = c(
-    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", 
-    "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", 
-    "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", 
-    "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"
-  )
-)
-
-# 3. Clean and Aggregate H1B Data
-h1b_clean <- h1b_data %>%
-  filter(!is.na(Fiscal.Year), !is.na(Petitioner.State), !is.na(Total.Approvals)) %>%
+# 3. Clean, Aggregate, and Normalize
+h1b_normalized <- h1b_data %>%
+  dplyr::filter(!is.na(Fiscal.Year), !is.na(Petitioner.State), !is.na(New.Employment.Approval)) %>%
   group_by(Petitioner.State, Fiscal.Year) %>%
-  summarise(Total_Approvals = sum(Total.Approvals), .groups = 'drop') %>%
+  summarise(Total_Approvals = sum(New.Employment.Approval, na.rm = TRUE), .groups = 'drop') %>%
   left_join(state_map, by = "Petitioner.State") %>%
-  filter(!is.na(state_name))
+  left_join(pop_data, by = "state_name") %>%
+  dplyr::filter(!is.na(state_name)) %>%
+  # Calculate the Per Capita Rate
+  mutate(Approvals_Per_100k = (Total_Approvals / population) * 100000)
 
 # 4. Prepare Election Data
-election_2020 <- election_data %>% 
-  filter(year == 2020) %>% 
-  select(state_name, winner_2020 = winner)
-
-election_2024 <- election_data %>% 
-  filter(year == 2024) %>% 
-  select(state_name, winner_2024 = winner)
-
-# 5. Split and Merge by Periods
-# Biden Term (2021-2024)
-biden_term <- h1b_clean %>%
-  filter(Fiscal.Year >= 2021 & Fiscal.Year <= 2024) %>%
+# 5. Split and Merge (Biden)
+biden_term_norm <- h1b_normalized %>%
+  dplyr::filter(Fiscal.Year >= 2021 & Fiscal.Year <= 2024) %>%
   left_join(election_2020, by = "state_name") %>%
-  filter(!is.na(winner_2020))
+  dplyr::filter(!is.na(winner_2020))
 
-# Trump Term (2025-2026)
-trump_term <- h1b_clean %>%
-  filter(Fiscal.Year >= 2025 & Fiscal.Year <= 2026) %>%
+# 6. Conduct T-Test on Normalized Rates
+biden_test_norm <- t.test(Approvals_Per_100k ~ winner_2020, data = biden_term_norm)
+
+print("Biden Term Normalized (Per 100k) T-Test:")
+print(biden_test_norm)
+
+# 7. Split and Merge (Trump)
+trump_term_norm <- h1b_normalized %>%
+  dplyr::filter(Fiscal.Year >= 2025 & Fiscal.Year <= 2026) %>%
   left_join(election_2024, by = "state_name") %>%
-  filter(!is.na(winner_2024))
+  dplyr::filter(!is.na(winner_2024))
 
-# 6. Conduct Independent Samples T-Tests
-# Biden Term Test
-biden_test <- t.test(Total_Approvals ~ winner_2020, data = biden_term)
-print("Biden Term (2021-2024) T-Test Results:")
-print(biden_test)
+#8. Conduct T-Test on Normalized Rates
+trump_test_norm <- t.test(Approvals_Per_100k ~ winner_2024, data = trump_term_norm)
 
-# Trump Term Test
-trump_test <- t.test(Total_Approvals ~ winner_2024, data = trump_term)
-print("Trump Term (2025-2026) T-Test Results:")
-print(trump_test)
-
+print("Trump Term (2025-2026) PER CAPITA T-Test Results:")
+print(trump_test_norm)
